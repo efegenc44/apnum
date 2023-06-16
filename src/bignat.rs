@@ -20,6 +20,13 @@ impl std::ops::Add for &BigNat {
     type Output = BigNat;
 
     fn add(self, rhs: Self) -> Self::Output {
+        // Short-circuit
+        if self.is_zero() {
+            return rhs.clone();
+        } else if rhs.is_zero() {
+            return self.clone();
+        }
+
         let mut result = BigNat::zero();
         let mut carry = 0;
         for position in 0..self.digits.len().max(rhs.digits.len()) {
@@ -31,6 +38,11 @@ impl std::ops::Add for &BigNat {
             carry = digit_sum / 10;
             result.digits.push(digit_sum % 10);
         }
+
+        if carry > 0 {
+            result.digits.push(carry);
+        }
+
         result
     }
 }
@@ -40,6 +52,48 @@ impl std::ops::Add for BigNat {
 
     fn add(self, rhs: Self) -> Self::Output {
         (&self).add(&rhs)
+    }
+}
+
+impl std::ops::Mul for &BigNat {
+    type Output = BigNat;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        // To avoid 0 results whose .digits is not empty (and to short-circuit).
+        //    ex. (123 * 0).digits = [0, 0, 0]
+        // This way only one zero value, whose .digits is empty, can be returned by this function.
+        if self.is_zero() || rhs.is_zero() {
+            return BigNat::zero();
+        }
+
+        let mut result = BigNat::zero();
+        for (position, right_digit) in rhs.digits.iter().enumerate() {
+            let mut product = BigNat {
+                digits: vec![0; position],
+            };
+            let mut carry = 0;
+            for left_digit in &self.digits {
+                // digit_product ϵ [0; 9*9 + 8] ⊂ u8 (max. carry is 8 by 9*9 = 81)
+                let digit_product = left_digit * right_digit + carry;
+                carry = digit_product / 10;
+                product.digits.push(digit_product % 10);
+            }
+
+            if carry > 0 {
+                product.digits.push(carry);
+            }
+
+            result = result + product;
+        }
+        result
+    }
+}
+
+impl std::ops::Mul for BigNat {
+    type Output = BigNat;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        (&self).mul(&rhs)
     }
 }
 
