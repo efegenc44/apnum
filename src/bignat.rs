@@ -1,4 +1,4 @@
-use crate::{APNum, APNumParseError, BigNat};
+use crate::{impl_from_for_integer, APNum, APNumParseError, BigInt, BigNat, Sign};
 
 impl APNum for BigNat {
     fn zero() -> Self {
@@ -97,24 +97,117 @@ impl std::ops::Mul for BigNat {
     }
 }
 
-macro_rules! impl_from_for_integer {
-    ($($t:ty)*) => ($(
-        impl From<$t> for BigNat {
-            fn from(value: $t) -> Self {
-                BigNat {
-                    digits: value.to_string()
-                        .as_bytes()
-                        .iter()
-                        .rev()
-                        .map(|ch| ch - b'0' as u8)
-                        .collect()
-                }
-            }
+impl std::ops::Sub for &BigNat {
+    type Output = BigInt;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        use std::cmp::Ordering::*;
+
+        let (bigger, smaller, sign) = match self.cmp(rhs) {
+            Less => (rhs, self, Sign::Negative),
+            Greater => (self, rhs, Sign::Positive),
+            Equal => return BigInt::zero(),
+        };
+
+        // Short-circuit
+        if bigger.is_zero() {
+            return BigInt {
+                sign,
+                digits: smaller.clone(),
+            };
+        } else if smaller.is_zero() {
+            return BigInt {
+                sign,
+                digits: bigger.clone(),
+            };
         }
-    )*)
+
+        let mut result = BigNat::zero();
+        let mut borrowed = false;
+        for position in 0..bigger.digits.len() {
+            let mut left_digit = *bigger.digits.get(position).unwrap_or(&0);
+            let mut right_digit = *smaller.digits.get(position).unwrap_or(&0);
+
+            // [0; 9] => [1; 10]
+            // Shift range by 1 to avoid subtraction overflow.
+            left_digit += 1;
+            right_digit += 1;
+
+            if borrowed {
+                // [1; 10] => [0; 9] (borrowed from)
+                left_digit -= 1;
+            }
+
+            borrowed = left_digit < right_digit;
+
+            if borrowed {
+                // [1; 10] => [11; 20]
+                // [0; 9]  => [10; 19] (borrowed from)
+                left_digit += 10
+            }
+
+            // Non-borrowing case (we know that lhs ≥ rhs):
+            //   [1; 10] - [1; 10] => [0; 9]
+            // Borrowing case:
+            //   [11; 20] - [1; 10] = [1; 19]
+            //   [10; 19] - [1; 10] = [0; 18] (borrowed from)
+            //     Subtraction here cannot exceed 9
+            //   For it, we need 1X - Y where X ≥ Y, but X ≥ Y doesn't borrow
+            //   effectivly => [1; 9] and [0; 9] respectively
+            result.digits.push(left_digit - right_digit);
+        }
+
+        // Cannot happen, always smaller one subtracted from bigger one 
+        debug_assert!(!borrowed);
+
+        // To unify the representation, trim potential leading zeros. (covers 0 case)
+        //   ex. (120 - 112).digits = [8, 0, 0]
+        while let Some(0) = result.digits.last() {
+            result.digits.pop();
+        }
+
+        BigInt {
+            sign,
+            digits: result,
+        }
+    }
 }
 
-impl_from_for_integer!(usize u8 u16 u32 u64 &usize &u8 &u16 &u32 &u64);
+impl std::ops::Sub for BigNat {
+    type Output = BigInt;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        (&self).sub(&rhs)
+    }
+}
+
+impl std::cmp::Ord for BigNat {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering::*;
+
+        if let ord @ (Greater | Less) = self.digits.len().cmp(&other.digits.len()) {
+            return ord;
+        }
+
+        for (left_digit, right_digit) in
+            std::iter::zip(self.digits.iter().rev(), other.digits.iter().rev())
+        {
+            if let ord @ (Greater | Less) = left_digit.cmp(right_digit) {
+                return ord;
+            }
+        }
+
+        Equal
+    }
+}
+
+impl std::cmp::PartialOrd for BigNat {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl_from_for_integer!(usize u8 u16 u32 u64 &usize &u8 &u16 &u32 &u64 ; BigNat);
 
 impl std::str::FromStr for BigNat {
     type Err = APNumParseError;
