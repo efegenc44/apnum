@@ -53,6 +53,26 @@ fn bignat_sub() {
 }
 
 #[test]
+fn bignat_div() {
+    let x = BigNat::from(1000usize);
+    let y = BigNat::from(900usize);
+    assert_eq!(&x / &y, (BigNat::from(1usize), BigNat::from(100usize)));
+    let x = BigNat::from(42usize);
+    let y = BigNat::from(10usize);
+    assert_eq!(&x / &y, (BigNat::from(4usize), BigNat::from(2usize)));
+    let x = BigNat::from(43usize);
+    let y = BigNat::from(2usize);
+    assert_eq!(&x / &y, (BigNat::from(21usize), BigNat::from(1usize)));
+    let x = BigNat::from(0usize);
+    let y = BigNat::from(2usize);
+    assert_eq!(&x / &y, (BigNat::zero(), BigNat::zero()));
+    // see. Knuth, The Art Of Computer Programming Vol. 2 Section 4.3.1, Solution of Exercise 22
+    let x = BigNat::from(4100usize);
+    let y = BigNat::from(588usize);
+    assert_eq!(&x / &y, (BigNat::from(6usize), BigNat::from(572usize)));
+}
+
+#[test]
 fn bignat_cmp() {
     let x = BigNat::from(123usize);
     let y = BigNat::from(321usize);

@@ -8,6 +8,17 @@ impl APNum for BigNat {
     fn is_zero(&self) -> bool {
         self.digits.is_empty()
     }
+
+    fn zero_normalized(mut self) -> Self {
+        while let Some(0) = self.digits.last() {
+            self.digits.pop();
+        }
+        self
+    }
+
+    fn digit_count(&self) -> usize {
+        self.digits.len()
+    }
 }
 
 impl Default for BigNat {
@@ -113,12 +124,12 @@ impl std::ops::Sub for &BigNat {
         if bigger.is_zero() {
             return BigInt {
                 sign,
-                digits: smaller.clone(),
+                natural: smaller.clone(),
             };
         } else if smaller.is_zero() {
             return BigInt {
                 sign,
-                digits: bigger.clone(),
+                natural: bigger.clone(),
             };
         }
 
@@ -157,18 +168,14 @@ impl std::ops::Sub for &BigNat {
             result.digits.push(left_digit - right_digit);
         }
 
-        // Cannot happen, always smaller one subtracted from bigger one 
+        // Cannot happen, always smaller one subtracted from bigger one
         debug_assert!(!borrowed);
-
-        // To unify the representation, trim potential leading zeros. (covers 0 case)
-        //   ex. (120 - 112).digits = [8, 0, 0]
-        while let Some(0) = result.digits.last() {
-            result.digits.pop();
-        }
 
         BigInt {
             sign,
-            digits: result,
+            // To unify the representation, trim potential leading zeros. (covers 0 case)
+            //   ex. (120 - 112).digits = [8, 0, 0]
+            natural: result.zero_normalized(),
         }
     }
 }
@@ -178,6 +185,107 @@ impl std::ops::Sub for BigNat {
 
     fn sub(self, rhs: Self) -> Self::Output {
         (&self).sub(&rhs)
+    }
+}
+
+// see. Knuth, The Art Of Computer Programming Vol. 2 Section 4.3.1, Algorithm D
+impl std::ops::Div for &BigNat {
+    type Output = (BigNat, BigNat);
+
+    fn div(self, rhs: Self) -> Self::Output {
+        use std::cmp::Ordering::*;
+
+        // Short-circuit
+        if rhs == &BigNat::from(1usize) {
+            return (self.clone(), BigNat::zero());
+        }
+
+        let (mut u, mut v) = match self.cmp(rhs) {
+            Less => return (BigNat::zero(), self.clone()),
+            Equal => return (BigNat::from(1usize), BigNat::zero()),
+            Greater => (self.clone(), rhs.clone()),
+        };
+
+        if v.is_zero() {
+            panic!("Division by Zero");
+        }
+
+        let n = v.digit_count();
+        let m = u.digit_count() - n;
+
+        let b = 10u32;
+
+        // D1 [Normalize.]
+        let d = BigNat::from((b - 1) / v.digits[n - 1] as u32);
+        u.digits.push(0);
+        u = &u * &d;
+        v = &v * &d;
+
+        // D2 [Initialize j.]
+        let mut q = BigNat::zero();
+
+        let mut j = m as isize;
+        while j >= 0 {
+            let ju = j as usize;
+
+            // D3 [Calculate qh.]
+            let (f, s) = (u.digits[ju + n] as u32, u.digits[ju + n - 1] as u32);
+            let mut qh = (f * b + s) / v.digits[n - 1] as u32;
+            let mut rh = (f * b + s) % v.digits[n - 1] as u32;
+
+            loop {
+                if qh == b
+                    || (n > 1 && qh * v.digits[n - 2] as u32 > b * rh + u.digits[ju + n - 2] as u32)
+                {
+                    qh -= 1;
+                    rh += v.digits[n - 1] as u32;
+
+                    if rh < b {
+                        continue;
+                    }
+                }
+                break;
+            }
+
+            // D4 [Multiply and subtract.]
+            let mut mul_and_sub = BigNat::from(&u.digits[ju..=ju + n]) - &BigNat::from(qh) * &v;
+
+            // D5 [Test remainder.]
+            if mul_and_sub.is_negative() {
+                qh -= 1;
+
+                // D6 [Add back.]
+                mul_and_sub = &v - &mul_and_sub.natural;
+            }
+
+            // Set the lenght of representation to n+1 (len(ju..=ju + n)) for .splice below
+            for _ in 0..(n + 1 - mul_and_sub.digit_count()) {
+                mul_and_sub.natural.digits.push(0);
+            }
+            u.digits.splice(ju..=ju + n, mul_and_sub.natural.digits);
+
+            q.digits.push(qh as u8);
+
+            // D7 [Loop on j.]
+            j -= 1;
+        }
+
+        // D8 [Unnormalize]
+        let (r, rr) = BigNat::from(&u.digits[0..=n - 1]).zero_normalized() / d;
+
+        // rr has to be zero, because it's multliplied by d at D1 [Normalize.]
+        debug_assert!(rr.is_zero());
+
+        q.digits.reverse();
+        (q.zero_normalized(), r)
+    }
+}
+
+impl std::ops::Div for BigNat {
+    type Output = (BigNat, BigNat);
+
+    fn div(self, rhs: Self) -> Self::Output {
+        (&self).div(&rhs)
     }
 }
 
@@ -208,6 +316,14 @@ impl std::cmp::PartialOrd for BigNat {
 }
 
 impl_from_for_integer!(usize u8 u16 u32 u64 &usize &u8 &u16 &u32 &u64 ; BigNat);
+
+impl From<&[u8]> for BigNat {
+    fn from(value: &[u8]) -> Self {
+        BigNat {
+            digits: value.into(),
+        }
+    }
+}
 
 impl std::str::FromStr for BigNat {
     type Err = APNumParseError;
@@ -244,6 +360,10 @@ impl TryFrom<&str> for BigNat {
 
 impl std::fmt::Display for BigNat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_zero() {
+            return write!(f, "0");
+        }
+
         for digit in self.digits.iter().rev() {
             digit.fmt(f)?;
         }

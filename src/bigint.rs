@@ -1,15 +1,37 @@
 use crate::{impl_from_for_integer, APNum, APNumParseError, BigInt, BigNat, Sign};
 
+impl BigInt {
+    pub fn is_negative(&self) -> bool {
+        self.sign == Sign::Negative
+    }
+
+    pub fn is_positive(&self) -> bool {
+        self.sign == Sign::Positive
+    }
+}
+
 impl APNum for BigInt {
     fn zero() -> Self {
         Self {
             sign: Sign::Zero,
-            digits: BigNat::zero(),
+            natural: BigNat::zero(),
         }
     }
 
     fn is_zero(&self) -> bool {
         self.sign == Sign::Zero
+    }
+
+    fn zero_normalized(mut self) -> Self {
+        self.natural = self.natural.zero_normalized();
+        if self.natural.is_zero() {
+            self.sign = Sign::Zero;
+        }
+        self
+    }
+
+    fn digit_count(&self) -> usize {
+        self.natural.digits.len()
     }
 }
 
@@ -31,12 +53,12 @@ impl std::str::FromStr for BigInt {
             Sign::Positive
         };
 
-        let digits = s.parse::<BigNat>()?;
+        let natural = s.parse::<BigNat>()?;
 
-        Ok(if digits.is_zero() {
+        Ok(if natural.is_zero() {
             BigInt::zero()
         } else {
-            BigInt { sign, digits }
+            BigInt { sign, natural }
         })
     }
 }
@@ -59,7 +81,7 @@ impl std::fmt::Display for BigInt {
             write!(f, "-")?;
         }
 
-        for digit in self.digits.digits.iter().rev() {
+        for digit in self.natural.digits.iter().rev() {
             digit.fmt(f)?;
         }
         Ok(())
@@ -80,7 +102,7 @@ mod tests {
     fn simple_valid() {
         let result = "-1234".parse::<BigInt>();
         assert!(
-            result.is_ok_and(|bigint| matches!(bigint.digits.digits[..], [4, 3, 2, 1])
+            result.is_ok_and(|bigint| matches!(bigint.natural.digits[..], [4, 3, 2, 1])
                 && bigint.sign == Sign::Negative)
         )
     }

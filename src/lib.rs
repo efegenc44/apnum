@@ -13,7 +13,7 @@ pub struct BigNat {
 #[derive(PartialEq, Eq, Clone)]
 pub struct BigInt {
     pub(crate) sign: Sign,
-    pub(crate) digits: BigNat,
+    pub(crate) natural: BigNat,
 }
 
 #[derive(PartialEq, Eq, Clone)]
@@ -26,6 +26,8 @@ pub(crate) enum Sign {
 pub trait APNum {
     fn zero() -> Self;
     fn is_zero(&self) -> bool;
+    fn zero_normalized(self) -> Self;
+    fn digit_count(&self) -> usize;
 }
 
 #[derive(Debug)]
