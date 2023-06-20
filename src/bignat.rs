@@ -1,4 +1,18 @@
-use crate::{impl_from_for_integer, APNum, APNumParseError, BigInt, BigNat, Sign};
+use crate::{APNum, APNumParseError, BigDigit, BigInt, BigNat, BiggerDigit, Sign, BASE};
+
+impl BigNat {
+    fn pow_uint(&self, power: usize) -> BigNat {
+        if power == 0 {
+            return BigNat::from(1usize);
+        }
+
+        let mut acc = BigNat::from(1usize);
+        for _ in 0..power {
+            acc = &acc * self;
+        }
+        acc
+    }
+}
 
 impl APNum for BigNat {
     fn zero() -> Self {
@@ -44,10 +58,13 @@ impl std::ops::Add for &BigNat {
             let left_digit = self.digits.get(position).unwrap_or(&0);
             let right_digit = rhs.digits.get(position).unwrap_or(&0);
 
-            // digit_sum ϵ [0; 9 + 9 + 1] ⊂ u8
-            let digit_sum = left_digit + right_digit + carry;
-            carry = digit_sum / 10;
-            result.digits.push(digit_sum % 10);
+            // digit_sum ϵ [0; (2^32 - 1) + (2^32 - 1) + 1] ⊂ u64
+            let digit_sum =
+                *left_digit as BiggerDigit + *right_digit as BiggerDigit + carry as BiggerDigit;
+            // carry ϵ { 0, 1 }
+            carry = (digit_sum / BASE) as BigDigit;
+            // digit_sum % BASE ϵ [0; (2^32 - 1)] ⊂ u32
+            result.digits.push((digit_sum % BASE) as BigDigit);
         }
 
         if carry > 0 {
@@ -84,10 +101,14 @@ impl std::ops::Mul for &BigNat {
             };
             let mut carry = 0;
             for left_digit in &self.digits {
-                // digit_product ϵ [0; 9*9 + 8] ⊂ u8 (max. carry is 8 by 9*9 = 81)
-                let digit_product = left_digit * right_digit + carry;
-                carry = digit_product / 10;
-                product.digits.push(digit_product % 10);
+                // digit_product ϵ [0; (2^32 - 1)*(2^32 - 1) + 4294967294] ⊂ u64
+                // (max. carry is 4294967294 by ((2^32 - 1) * (2^32 - 1)) / 2^32)
+                let digit_product =
+                    *left_digit as BiggerDigit * *right_digit as BiggerDigit + carry as BiggerDigit;
+                // carry ϵ [0; 4294967294] ⊂ u32
+                carry = (digit_product / BASE) as BigDigit;
+                // digit_product % BASE ϵ [0; (2^32 - 1)] ⊂ u32
+                product.digits.push((digit_product % BASE) as BigDigit);
             }
 
             if carry > 0 {
@@ -136,36 +157,36 @@ impl std::ops::Sub for &BigNat {
         let mut result = BigNat::zero();
         let mut borrowed = false;
         for position in 0..bigger.digits.len() {
-            let mut left_digit = *bigger.digits.get(position).unwrap_or(&0);
-            let mut right_digit = *smaller.digits.get(position).unwrap_or(&0);
+            let mut left_digit = *bigger.digits.get(position).unwrap_or(&0) as BiggerDigit;
+            let mut right_digit = *smaller.digits.get(position).unwrap_or(&0) as BiggerDigit;
 
-            // [0; 9] => [1; 10]
+            // [0; 2^32 - 1] => [1; 2^32] ⊂ u64
             // Shift range by 1 to avoid subtraction overflow.
             left_digit += 1;
             right_digit += 1;
 
             if borrowed {
-                // [1; 10] => [0; 9] (borrowed from)
+                // [1; 2^32] => [0; 2^32 - 1] (borrowed from)
                 left_digit -= 1;
             }
 
             borrowed = left_digit < right_digit;
 
             if borrowed {
-                // [1; 10] => [11; 20]
-                // [0; 9]  => [10; 19] (borrowed from)
-                left_digit += 10
+                // [1; 2^32]      => [1 + 2^32; 2^33] ⊂ u64
+                // [0; 2^32 - 1]  => [2^32; 2^33 - 1] ⊂ u64 (borrowed from)
+                left_digit += BASE
             }
 
             // Non-borrowing case (we know that lhs ≥ rhs):
-            //   [1; 10] - [1; 10] => [0; 9]
+            //   [1; 2^32] - [1; 2^32] => [0; 2^32 - 1] ⊂ u32
             // Borrowing case:
-            //   [11; 20] - [1; 10] = [1; 19]
-            //   [10; 19] - [1; 10] = [0; 18] (borrowed from)
-            //     Subtraction here cannot exceed 9
-            //   For it, we need 1X - Y where X ≥ Y, but X ≥ Y doesn't borrow
-            //   effectivly => [1; 9] and [0; 9] respectively
-            result.digits.push(left_digit - right_digit);
+            //   [1 + 2^32; 2^33] - [1; 2^32] = [1; 2^33 - 1]
+            //   [2^32; 2^33 - 1] - [1; 2^32] = [0; 2^33 - 2] (borrowed from)
+            //     Subtraction here cannot exceed 2^32 - 1
+            //   For it, we need 2^32 * X - Y where X ≥ Y, but X ≥ Y doesn't borrow
+            //   effectivly => [1; 2^32 - 1] and [0; 2^32 - 1] respectively
+            result.digits.push((left_digit - right_digit) as BigDigit);
         }
 
         // Cannot happen, always smaller one subtracted from bigger one
@@ -213,10 +234,9 @@ impl std::ops::Div for &BigNat {
         let n = v.digit_count();
         let m = u.digit_count() - n;
 
-        let b = 10u32;
-
         // D1 [Normalize.]
-        let d = BigNat::from((b - 1) / v.digits[n - 1] as u32);
+        // 2^32 - 1 / [1; (2^32 - 1)] = [1; 2^32 - 1] ⊂ u32
+        let d = BigNat::from(((BASE - 1) / v.digits[n - 1] as BiggerDigit) as BigDigit);
         u.digits.push(0);
         u = &u * &d;
         v = &v * &d;
@@ -229,18 +249,26 @@ impl std::ops::Div for &BigNat {
             let ju = j as usize;
 
             // D3 [Calculate qh.]
-            let (f, s) = (u.digits[ju + n] as u32, u.digits[ju + n - 1] as u32);
-            let mut qh = (f * b + s) / v.digits[n - 1] as u32;
-            let mut rh = (f * b + s) % v.digits[n - 1] as u32;
+            let (f, s) = (
+                u.digits[ju + n] as BiggerDigit,
+                u.digits[ju + n - 1] as BiggerDigit,
+            );
+            // qh ϵ [0; (2^32 - 1)*(2^32) + (2^32 - 1) / 1] = u64
+            let mut qh = (f * BASE + s) / v.digits[n - 1] as BiggerDigit;
+            // rh ϵ [0; 2^32 - 2] ⊂ u64
+            let mut rh = (f * BASE + s) % v.digits[n - 1] as BiggerDigit;
 
             loop {
-                if qh == b
-                    || (n > 1 && qh * v.digits[n - 2] as u32 > b * rh + u.digits[ju + n - 2] as u32)
+                if qh == BASE
+                    || (n > 1
+                        && BigNat::from(qh) * BigNat::from(v.digits[n - 2])
+                            > BigNat::from(BASE) * BigNat::from(rh)
+                                + BigNat::from(u.digits[ju + n - 2]))
                 {
                     qh -= 1;
-                    rh += v.digits[n - 1] as u32;
+                    rh += v.digits[n - 1] as BiggerDigit;
 
-                    if rh < b {
+                    if rh < BASE {
                         continue;
                     }
                 }
@@ -264,7 +292,7 @@ impl std::ops::Div for &BigNat {
             }
             u.digits.splice(ju..=ju + n, mul_and_sub.natural.digits);
 
-            q.digits.push(qh as u8);
+            q.digits.push(qh as u32);
 
             // D7 [Loop on j.]
             j -= 1;
@@ -315,10 +343,35 @@ impl std::cmp::PartialOrd for BigNat {
     }
 }
 
-impl_from_for_integer!(usize u8 u16 u32 u64 &usize &u8 &u16 &u32 &u64 ; BigNat);
+macro_rules! impl_from_integer {
+    ($($t:ty)*) => ($(
+        impl From<$t> for BigNat {
+            fn from(value: $t) -> Self {
+                let mut value = value as u64;
 
-impl From<&[u8]> for BigNat {
-    fn from(value: &[u8]) -> Self {
+                if value == 0 {
+                    return BigNat::zero();
+                }
+
+                if value <= u32::MAX as u64 {
+                    return BigNat { digits: vec![value as u32] };
+                }
+
+                let mut result = BigNat::zero();
+                while value != 0 {
+                    result.digits.push((value % BASE) as u32);
+                    value /= BASE;
+                }
+                result
+            }
+        }
+    )*)
+}
+
+impl_from_integer!(usize u8 u16 u32 u64);
+
+impl From<&[u32]> for BigNat {
+    fn from(value: &[u32]) -> Self {
         BigNat {
             digits: value.into(),
         }
@@ -338,15 +391,17 @@ impl std::str::FromStr for BigNat {
             s = &s[1..];
         }
 
-        let mut digits = vec![];
-        for ch in s.as_bytes().iter().rev() {
+        let mut result = BigNat::zero();
+        for (position, ch) in s.as_bytes().iter().rev().enumerate() {
             match ch {
-                b'0'..=b'9' => digits.push(*ch - b'0'),
+                b'0'..=b'9' => {
+                    result =
+                        result + BigNat::from(ch - b'0') * BigNat::from(10usize).pow_uint(position)
+                }
                 _ => return Err(APNumParseError::Invalid),
             }
         }
-
-        Ok(BigNat { digits })
+        Ok(result)
     }
 }
 
@@ -364,10 +419,27 @@ impl std::fmt::Display for BigNat {
             return write!(f, "0");
         }
 
-        for digit in self.digits.iter().rev() {
-            digit.fmt(f)?;
+        // see. Knuth, The Art Of Computer Programming Vol. 2 Section 4.4, Method 1a
+        let mut number = self.clone();
+        let mut number_base10 = String::new();
+        while !number.is_zero() {
+            let (nn, digit) = number / BigNat::from(10usize);
+
+            if digit.is_zero() {
+                number_base10 += "0";
+            } else {
+                debug_assert!(digit.digit_count() == 1);
+                number_base10 += &digit.digits[0].to_string();
+            };
+
+            number = nn;
         }
-        Ok(())
+
+        unsafe {
+            number_base10.as_bytes_mut().reverse();
+        }
+
+        write!(f, "{number_base10}")
     }
 }
 
@@ -383,14 +455,20 @@ mod tests {
 
     #[test]
     fn simple_valid() {
-        let result = "1234".parse::<BigNat>();
-        assert!(result.is_ok_and(|bignat| matches!(bignat.digits[..], [4, 3, 2, 1])))
+        let result = "9546970867456973047694867034678".parse::<BigNat>();
+        assert!(result.is_ok_and(|bignat| matches!(
+            bignat.digits[..],
+            [1443885622, 2721072739, 2146252237, 120]
+        )))
     }
 
     #[test]
     fn leading_zeros() {
-        let result = "001234".parse::<BigNat>();
-        assert!(result.is_ok_and(|bignat| matches!(bignat.digits[..], [4, 3, 2, 1])))
+        let result = "0009546970867456973047694867034678".parse::<BigNat>();
+        assert!(result.is_ok_and(|bignat| matches!(
+            bignat.digits[..],
+            [1443885622, 2721072739, 2146252237, 120]
+        )))
     }
 
     #[test]

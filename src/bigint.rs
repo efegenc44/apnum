@@ -1,4 +1,4 @@
-use crate::{impl_from_for_integer, APNum, APNumParseError, BigInt, BigNat, Sign};
+use crate::{APNum, APNumParseError, BigInt, BigNat, Sign};
 
 impl BigInt {
     pub fn is_negative(&self) -> bool {
@@ -35,8 +35,38 @@ impl APNum for BigInt {
     }
 }
 
-impl_from_for_integer!(usize u8 u16 u32 u64 &usize &u8 &u16 &u32 &u64
-                       isize i8 i16 i32 i64 &isize &i8 &i16 &i32 &i64 ; BigInt);
+macro_rules! impl_from_integer {
+    ($($u:ty)* ; $($s:ty)*) => {
+        $(impl From<$u> for BigInt {
+            fn from(value: $u) -> Self {
+                if value == 0 {
+                    return BigInt::zero();
+                }
+
+                BigInt { sign: Sign::Positive, natural: BigNat::from(value) }
+            }
+        })*
+
+        $(impl From<$s> for BigInt {
+            fn from(value: $s) -> Self {
+                let sign = if value < 0 {
+                    Sign::Negative
+                } else {
+                    Sign::Positive
+                };
+
+                if value == 0 {
+                    return BigInt::zero();
+                }
+
+                BigInt { sign, natural: BigNat::from(value.unsigned_abs()) }
+            }
+        })*
+    }
+}
+
+impl_from_integer!(usize u8 u16 u32 u64 ;
+                   isize i8 i16 i32 i64);
 
 impl std::str::FromStr for BigInt {
     type Err = APNumParseError;
@@ -81,10 +111,7 @@ impl std::fmt::Display for BigInt {
             write!(f, "-")?;
         }
 
-        for digit in self.natural.digits.iter().rev() {
-            digit.fmt(f)?;
-        }
-        Ok(())
+        std::fmt::Display::fmt(&self.natural, f)
     }
 }
 
@@ -100,11 +127,11 @@ mod tests {
 
     #[test]
     fn simple_valid() {
-        let result = "-1234".parse::<BigInt>();
-        assert!(
-            result.is_ok_and(|bigint| matches!(bigint.natural.digits[..], [4, 3, 2, 1])
-                && bigint.sign == Sign::Negative)
-        )
+        let result = "-9546970867456973047694867034678".parse::<BigInt>();
+        assert!(result.is_ok_and(|bigint| matches!(
+            bigint.natural.digits[..],
+            [1443885622, 2721072739, 2146252237, 120]
+        ) && bigint.sign == Sign::Negative))
     }
 
     #[test]

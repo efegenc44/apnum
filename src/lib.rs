@@ -2,11 +2,16 @@
 mod bigint;
 mod bignat;
 
+pub type BigDigit = u32;
+pub type BiggerDigit = u64;
+
+pub const BASE: u64 = u32::MAX as u64 + 1;
+
 /// Arbitrary Precision Natural Number
 #[derive(PartialEq, Eq, Clone)]
 pub struct BigNat {
-    /// Base10 digits in reverse order
-    pub(crate) digits: Vec<u8>,
+    /// Digits in reverse order
+    pub(crate) digits: Vec<BigDigit>,
 }
 
 /// Arbitrary Precision Integer Number
@@ -34,15 +39,4 @@ pub trait APNum {
 pub enum APNumParseError {
     Empty,
     Invalid,
-}
-
-#[macro_export]
-macro_rules! impl_from_for_integer {
-    ($($t:ty)* ; $nt:ident) => ($(
-        impl From<$t> for $nt {
-            fn from(value: $t) -> Self {
-                value.to_string().parse().unwrap()
-            }
-        }
-    )*)
 }
