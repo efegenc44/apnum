@@ -184,8 +184,9 @@ impl std::ops::Sub for &BigNat {
             //   [1 + 2^32; 2^33] - [1; 2^32] = [1; 2^33 - 1]
             //   [2^32; 2^33 - 1] - [1; 2^32] = [0; 2^33 - 2] (borrowed from)
             //     Subtraction here cannot exceed 2^32 - 1
-            //   For it, we need 2^32 * X - Y where X ≥ Y, but X ≥ Y doesn't borrow
-            //   effectivly => [1; 2^32 - 1] and [0; 2^32 - 1] respectively
+            //   For it, we need 2^32 + X - Y where X ≥ Y, but X ≥ Y doesn't borrow
+            //      borrow value -^     ^---^-- digit ϵ [0; 2^32 - 1]
+            //   effectively => [1; 2^32 - 1] and [0; 2^32 - 1] respectively
             result.digits.push((left_digit - right_digit) as BigDigit);
         }
 
