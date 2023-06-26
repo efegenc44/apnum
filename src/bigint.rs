@@ -207,15 +207,15 @@ macro_rules! impl_from_integer {
 
         $(impl From<$s> for BigInt {
             fn from(value: $s) -> Self {
+                if value == 0 {
+                    return BigInt::zero();
+                }
+
                 let sign = if value < 0 {
                     Sign::Negative
                 } else {
                     Sign::Positive
                 };
-
-                if value == 0 {
-                    return BigInt::zero();
-                }
 
                 BigInt { sign, natural: BigNat::from(value.unsigned_abs()) }
             }

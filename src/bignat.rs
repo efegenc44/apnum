@@ -237,7 +237,7 @@ impl std::ops::Div for &BigNat {
 
         // D1 [Normalize.]
         // 2^32 - 1 / [1; (2^32 - 1)] = [1; 2^32 - 1] ⊂ u32
-        let d = BigNat::from(((BASE - 1) / v.digits[n - 1] as BiggerDigit) as BigDigit);
+        let d = BigNat::from((BASE - 1) as BigDigit / v.digits[n - 1]);
         u.digits.push(0);
         u = &u * &d;
         v = &v * &d;
@@ -280,14 +280,18 @@ impl std::ops::Div for &BigNat {
             let mut mul_and_sub = BigNat::from(&u.digits[ju..=ju + n]) - &BigNat::from(qh) * &v;
 
             // D5 [Test remainder.]
-            if mul_and_sub.is_negative() {
+            // Originally in the algorithm, it's just a check rather than a loop,
+            // but there are some cases where qh is off by more than one (see tests).
+            // Beacuse that I don't totally understand what's going on the alogrithm,
+            // so I can't tell what's wrong.
+            while mul_and_sub.is_negative() {
                 qh -= 1;
 
                 // D6 [Add back.]
                 mul_and_sub = &v - &mul_and_sub.natural;
             }
 
-            // Set the lenght of representation to n+1 (len(ju..=ju + n)) for .splice below
+            // Set the length of the representation to n+1 (len(ju..=ju + n)) for .splice below
             for _ in 0..(n + 1 - mul_and_sub.digit_count()) {
                 mul_and_sub.natural.digits.push(0);
             }
@@ -348,16 +352,11 @@ macro_rules! impl_from_integer {
     ($($t:ty)*) => ($(
         impl From<$t> for BigNat {
             fn from(value: $t) -> Self {
-                let mut value = value as u64;
-
                 if value == 0 {
                     return BigNat::zero();
                 }
 
-                if value <= u32::MAX as u64 {
-                    return BigNat { digits: vec![value as u32] };
-                }
-
+                let mut value = value as u64;
                 let mut result = BigNat::zero();
                 while value != 0 {
                     result.digits.push((value % BASE) as u32);

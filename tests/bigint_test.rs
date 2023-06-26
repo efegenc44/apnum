@@ -1,5 +1,8 @@
 use apnum::{APNum, BigInt};
 
+// These tests are essentailly for testing sign calculations.
+// All numeric calculations based on BigNat which is tested
+
 #[test]
 fn bigint_add() {
     let x = BigInt::zero();
