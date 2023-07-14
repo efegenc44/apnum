@@ -6,7 +6,7 @@ fn bignat_add() {
     let y = BigNat::from(123usize);
     assert_eq!(&x + &y, y);
     let x = BigNat::from(u32::MAX);
-    let y = BigNat::from(u32::MAX);
+    let y = u32::MAX;
     assert_eq!(x + y, BigNat::from(8589934590usize));
     let x = BigNat::from(u64::MAX);
     let y = BigNat::from(u64::MAX);
@@ -22,7 +22,7 @@ fn bignat_mul() {
     let y = BigNat::from(123usize);
     assert_eq!(&x * &y, BigNat::zero());
     let x = BigNat::from(u32::MAX);
-    let y = BigNat::from(u32::MAX);
+    let y = u32::MAX;
     assert_eq!(x * y, BigNat::from(18446744065119617025usize));
     let x = BigNat::from(u64::MAX);
     let y = BigNat::from(u64::MAX);
@@ -38,9 +38,9 @@ fn bignat_mul() {
 #[test]
 fn bignat_sub() {
     let x = BigNat::from(100usize);
-    let y = BigNat::from(98usize);
-    assert_eq!(&x - &y, BigInt::from(2));
-    assert_eq!(&y - &x, BigInt::from(-2));
+    let y = 98u32;
+    assert_eq!(&x - y, BigInt::from(2));
+    assert_eq!(y - &x, BigInt::from(-2));
     assert_eq!(&x - &x, BigInt::zero());
 
     let x = BigNat::from(121110987654321usize);
@@ -58,8 +58,8 @@ fn bignat_sub() {
 #[test]
 fn bignat_div() {
     let x = BigNat::from(1000usize);
-    let y = BigNat::from(900usize);
-    assert_eq!(&x / &y, (BigNat::from(1usize), BigNat::from(100usize)));
+    let y = 900u32;
+    assert_eq!(&x / y, (BigNat::from(1usize), 100));
     let x = BigNat::from(42usize);
     let y = BigNat::from(10usize);
     assert_eq!(&x / &y, (BigNat::from(4usize), BigNat::from(2usize)));
@@ -72,8 +72,8 @@ fn bignat_div() {
     assert_eq!(&x / &y, (BigNat::zero(), BigNat::zero()));
     // see. Knuth, The Art Of Computer Programming Vol. 2 Section 4.3.1, Solution of Exercise 22
     let x = BigNat::from(4100usize);
-    let y = BigNat::from(588usize);
-    assert_eq!(&x / &y, (BigNat::from(6usize), BigNat::from(572usize)));
+    let y = 588u32;
+    assert_eq!(&x / y, (BigNat::from(6usize), 572));
 }
 
 #[test]

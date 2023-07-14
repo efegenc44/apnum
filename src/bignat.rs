@@ -1,6 +1,259 @@
 use crate::{APNum, APNumParseError, BigDigit, BigInt, BigNat, BiggerDigit, Sign, BASE};
 
+macro_rules! cmp_digit_size {
+    ($( $cmp_func:ident -> $ty:ident );*) => ($(
+        pub fn $cmp_func(&self, other: $ty) -> std::cmp::Ordering {
+            use std::cmp::Ordering::*;
+    
+            if let ord @ (Greater | Less) = self.digit_count().cmp(&1) {
+                return ord;
+            }
+    
+            self.digits[0].cmp(&(other as BigDigit))
+        }
+    )*);
+}
+
+macro_rules! eq_digit_size {
+    ($( $eq_func:ident -> $ty:ident );*) => ($(
+        pub fn $eq_func(&self, other: $ty) -> bool {
+            self.digit_count() == 1 &&
+            self.digits[0] == other as BigDigit
+        }
+    )*);
+}
+
+macro_rules! impl_digit_size_arithmetic {
+    ($( $cmp_func:ident -> $ty:ident );*) => ($(
+        impl std::ops::Add<$ty> for &BigNat {
+            type Output = BigNat;
+        
+            fn add(self, rhs: $ty) -> Self::Output {
+                // Short-circuit
+                if self.is_zero() {
+                    return BigNat::from(rhs);
+                } else if rhs == 0 {
+                    return self.clone();
+                }
+        
+                let mut result = BigNat::zero();
+                let mut carry = 0;
+        
+                let digit_sum = *self.digits.first().unwrap_or(&0) as BiggerDigit
+                    + rhs as BiggerDigit
+                    + carry as BiggerDigit;
+                carry = (digit_sum / BASE) as BigDigit;
+                result.digits.push((digit_sum % BASE) as BigDigit);
+        
+                for position in 1..self.digits.len() {
+                    let left_digit = self.digits[position];
+        
+                    let digit_sum = left_digit as BiggerDigit + carry as BiggerDigit;
+                    carry = (digit_sum / BASE) as BigDigit;
+                    result.digits.push((digit_sum % BASE) as BigDigit);
+                }
+        
+                if carry > 0 {
+                    result.digits.push(carry);
+                }
+        
+                result
+            }
+        }
+
+        impl std::ops::Add<&BigNat> for $ty {
+            type Output = BigNat;
+            fn add(self, rhs: &BigNat) -> Self::Output {
+                rhs + self
+            }
+        }
+
+        impl std::ops::Add<$ty> for BigNat {
+            type Output = BigNat;
+            fn add(self, rhs: $ty) -> Self::Output {
+                (&self).add(rhs)
+            }
+        }
+
+        impl std::ops::Mul<$ty> for &BigNat {
+            type Output = BigNat;
+        
+            fn mul(self, rhs: $ty) -> Self::Output {
+                if self.is_zero() || rhs == 0 {
+                    return BigNat::zero();
+                }
+        
+                let mut product = BigNat::zero();
+                let mut carry = 0;
+                for left_digit in &self.digits {
+                    let digit_product = *left_digit as BiggerDigit * rhs as BiggerDigit + carry as BiggerDigit;
+                    carry = (digit_product / BASE) as BigDigit;
+                    product.digits.push((digit_product % BASE) as BigDigit);
+                }
+        
+                if carry > 0 {
+                    product.digits.push(carry);
+                }
+        
+                product
+            }
+        }
+
+        impl std::ops::Mul<&BigNat> for $ty {
+            type Output = BigNat;
+            fn mul(self, rhs: &BigNat) -> Self::Output {
+                rhs * self
+            }
+        }
+
+        impl std::ops::Mul<$ty> for BigNat {
+            type Output = BigNat;
+            fn mul(self, rhs: $ty) -> Self::Output {
+                (&self).mul(rhs)
+            }
+        }
+
+        impl std::ops::Sub<$ty> for &BigNat {
+            type Output = BigInt;
+        
+            fn sub(self, rhs: $ty) -> Self::Output {
+                use std::cmp::Ordering::*;
+        
+                let (bigger, smaller) = match self.$cmp_func(rhs) {
+                    Greater => (self, rhs),
+                    Less => return BigInt::from(-((rhs as BigDigit - self.digits[0]) as i64)),
+                    Equal => return BigInt::zero(),
+                };
+        
+                // Short-circuit
+                if bigger.is_zero() {
+                    return BigInt {
+                        sign: Sign::Positive,
+                        natural: smaller.into(),
+                    };
+                } else if smaller == 0 {
+                    return BigInt {
+                        sign: Sign::Positive,
+                        natural: bigger.clone(),
+                    };
+                }
+        
+                let mut result = BigNat::zero();
+        
+                let mut left_digit = *bigger.digits.first().unwrap_or(&0) as BiggerDigit;
+                let mut right_digit = rhs as BiggerDigit;
+        
+                left_digit += 1;
+                right_digit += 1;
+        
+                let mut borrowed = left_digit < right_digit;
+        
+                if borrowed {
+                    left_digit += BASE
+                }
+        
+                result.digits.push((left_digit - right_digit) as BigDigit);
+        
+                for position in 1..bigger.digits.len() {
+                    let mut left_digit = *bigger.digits.get(position).unwrap_or(&0) as BiggerDigit;
+                    let mut right_digit = 0;
+        
+                    left_digit += 1;
+                    right_digit += 1;
+        
+                    if borrowed {
+                        left_digit -= 1;
+                    }
+        
+                    borrowed = left_digit < right_digit;
+        
+                    if borrowed {
+                        left_digit += BASE
+                    }
+        
+                    result.digits.push((left_digit - right_digit) as BigDigit);
+                }
+        
+                BigInt {
+                    sign: Sign::Positive,
+                    natural: result.zero_normalized(),
+                }
+            }
+        }
+
+        impl std::ops::Sub<&BigNat> for $ty {
+            type Output = BigInt;
+            fn sub(self, rhs: &BigNat) -> Self::Output {
+                -(rhs - self)
+            }
+        }
+
+        impl std::ops::Sub<$ty> for BigNat {
+            type Output = BigInt;
+            fn sub(self, rhs: $ty) -> Self::Output {
+                (&self).sub(rhs)
+            }
+        }
+
+        // see. Knuth, The Art Of Computer Programming Vol. 2 Section 4.3.1, Solution of Exercise 16
+        // Short Division
+        impl std::ops::Div<$ty> for &BigNat {
+            type Output = (BigNat, $ty);
+
+            fn div(self, rhs: $ty) -> Self::Output {
+                use std::cmp::Ordering::*;
+
+                // Short-circuit
+                if rhs == 1 {
+                    return (self.clone(), 0);
+                }
+
+                let (u, v) = match self.$cmp_func(rhs) {
+                    Less => return (BigNat::zero(), self.digits[0] as $ty),
+                    Equal => return (BigNat::from(1usize), 0),
+                    Greater => (self.clone(), rhs.clone()),
+                };
+
+                if v == 0 {
+                    panic!("Division by Zero");
+                }
+
+                // S1
+                let mut w = BigNat::zero();
+                let n = u.digit_count();
+                let mut j = n - 1;
+                let mut r = 0;
+
+                // S2
+                loop {
+                    w.digits.push(((r * BASE + u.digits[j] as BiggerDigit) / v as BiggerDigit) as BigDigit);
+                    r = (r * BASE + u.digits[j] as BiggerDigit) % v as BiggerDigit;
+                    
+                    // S3
+                    j = match j.checked_sub(1) {
+                        Some(j) => j,
+                        None => break,
+                    };
+                }
+
+                w.digits.reverse();
+                (w.zero_normalized(), r as $ty)
+            }
+        }
+
+        impl std::ops::Div<$ty> for BigNat {
+            type Output = (BigNat, $ty);
+            fn div(self, rhs: $ty) -> Self::Output {
+                (&self).div(rhs)
+            }
+        }
+    )*)
+}
+
 impl BigNat {
+    cmp_digit_size!(cmp_u8 -> u8; cmp_u16 -> u16; cmp_u32 -> u32);
+    eq_digit_size!(eq_u8 -> u8; eq_u16 -> u16; eq_u32 -> u32);
+    
     fn pow_uint(&self, power: usize) -> BigNat {
         if power == 0 {
             return BigNat::from(1usize);
@@ -40,6 +293,8 @@ impl Default for BigNat {
         Self::zero()
     }
 }
+
+impl_digit_size_arithmetic!(cmp_u8 -> u8; cmp_u16 -> u16; cmp_u32 -> u32);
 
 impl std::ops::Add for &BigNat {
     type Output = BigNat;

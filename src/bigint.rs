@@ -1,6 +1,300 @@
-use crate::{APNum, APNumParseError, BigInt, BigNat, Sign};
+use crate::{APNum, APNumParseError, BigInt, BigNat, Sign, BigDigit};
+
+macro_rules! cmp_digit_size {
+    ( $( $cmp_func_u:ident -> $uty:ident );* | $( $cmp_func_s:ident, $cmp_func_ss:ident -> $sty:ident );* ) => ($(
+        pub fn $cmp_func_u(&self, other: $uty) -> std::cmp::Ordering {
+            match self.sign {
+                Sign::Negative => self.natural.$cmp_func_u(other).reverse(),
+                _ => self.natural.$cmp_func_u(other)
+            }
+        }
+
+        pub fn $cmp_func_s(&self, other: $sty) -> std::cmp::Ordering {
+            use Sign::*;
+            use std::cmp::Ordering::*;
+
+            match (&self.sign, other.signum()) {
+                (Positive, 1) => self.natural.$cmp_func_ss(other.unsigned_abs()),
+                (Negative, -1) => self.natural.$cmp_func_ss(other.unsigned_abs()).reverse(),
+                (Positive, -1) => Greater,
+                (Negative, 1) => Less,
+                (Positive, 0) => Greater,
+                (Negative, 0) => Less,
+                (Zero, -1) => Greater,
+                (Zero, 1) => Less,
+                (Zero, 0) => Equal,
+                _ => unreachable!()         
+            }
+        }
+    )*);
+}
+
+macro_rules! eq_digit_size {
+    ($( $eq_func_u:ident -> $uty:ident );* | $( $eq_func_s:ident -> $sty:ident );*) => ($(
+        pub fn $eq_func_u(&self, other: $uty) -> bool {
+            self.is_positive() &&
+            self.digit_count() == 1 &&
+            self.natural.digits[0] == other as BigDigit
+        }
+
+        pub fn $eq_func_s(&self, other: $sty) -> bool {
+            self.digit_count() == 1 &&
+            (match (&self.sign, other.signum()) {
+                (Sign::Negative, -1) |
+                (Sign::Positive, 1) |
+                (Sign::Zero, 0) => true,
+                _ => false
+            }) &&
+            self.natural.digits[0] == other as BigDigit
+        }
+    )*);
+}
+
+macro_rules! impl_digit_size_arithmetic {
+    ( $( $uty:ident );* | $( $sty:ident );*) => ($(
+        impl std::ops::Add<$uty> for &BigInt {
+            type Output = BigInt;
+        
+            fn add(self, rhs: $uty) -> Self::Output {
+                use Sign::*;
+        
+                match &self.sign {
+                    Positive => BigInt {
+                        sign: Sign::Positive,
+                        natural: &self.natural + rhs,
+                    },
+                    Negative => rhs - &self.natural,
+                    Zero => rhs.into(),
+                }
+            }
+        }
+
+        impl std::ops::Add<&BigInt> for $uty {
+            type Output = BigInt;
+            fn add(self, rhs: &BigInt) -> Self::Output {
+                rhs + self
+            }
+        }
+
+        impl std::ops::Add<$uty> for BigInt {
+            type Output = BigInt;
+            fn add(self, rhs: $uty) -> Self::Output {
+                (&self).add(rhs)
+            }
+        }
+
+        impl std::ops::Add<$sty> for &BigInt {
+            type Output = BigInt;
+        
+            fn add(self, rhs: $sty) -> Self::Output {
+                match rhs.signum() {
+                    1  => self + rhs.unsigned_abs(),
+                    0  => self.clone(),
+                    -1 => self - rhs.unsigned_abs(),
+                    _ => unreachable!()
+                }
+            }
+        }
+
+        impl std::ops::Add<&BigInt> for $sty {
+            type Output = BigInt;
+            fn add(self, rhs: &BigInt) -> Self::Output {
+                rhs + self
+            }
+        }
+
+        impl std::ops::Add<$sty> for BigInt {
+            type Output = BigInt;
+            fn add(self, rhs: $sty) -> Self::Output {
+                (&self).add(rhs)
+            }
+        }
+
+        impl std::ops::Mul<$uty> for &BigInt {
+            type Output = BigInt;
+        
+            fn mul(self, rhs: $uty) -> Self::Output {
+                use Sign::*;
+        
+                let sign = match &self.sign {
+                    Positive => Positive,
+                    Negative => Negative,
+                    Zero => Zero,
+                };
+        
+                BigInt {
+                    sign,
+                    natural: &self.natural * rhs,
+                }
+            }
+        }
+
+        impl std::ops::Mul<&BigInt> for $uty {
+            type Output = BigInt;
+            fn mul(self, rhs: &BigInt) -> Self::Output {
+                rhs * self
+            }
+        }
+        
+        impl std::ops::Mul<$uty> for BigInt {
+            type Output = BigInt;
+            fn mul(self, rhs: $uty) -> Self::Output {
+                (&self).mul(rhs)
+            }
+        }
+
+        impl std::ops::Mul<$sty> for &BigInt {
+            type Output = BigInt;
+        
+            fn mul(self, rhs: $sty) -> Self::Output {
+                use Sign::*;
+        
+                let sign = match (&self.sign, rhs.signum()) {
+                    (Positive, 1) | (Negative, -1) => Positive,
+                    (Positive, -1) | (Negative, 1) => Negative,
+                    (_, 0) | (Zero, _) => Zero,
+                    _ => unreachable!()
+                };
+        
+                BigInt {
+                    sign,
+                    natural: &self.natural * rhs.unsigned_abs(),
+                }
+            }
+        }
+
+        impl std::ops::Mul<&BigInt> for $sty {
+            type Output = BigInt;
+            fn mul(self, rhs: &BigInt) -> Self::Output {
+                rhs * self
+            }
+        }
+
+        impl std::ops::Mul<$sty> for BigInt {
+            type Output = BigInt;
+            fn mul(self, rhs: $sty) -> Self::Output {
+                (&self).mul(rhs)
+            }
+        }
+
+        impl std::ops::Sub<$uty> for &BigInt {
+            type Output = BigInt;
+        
+            fn sub(self, rhs: $uty) -> Self::Output {
+                use Sign::*;
+
+                match self.sign {
+                    Positive => &self.natural - rhs,
+                    Negative => -(&self.natural - rhs),
+                    Zero     => -BigInt::from(rhs)
+                }
+            }
+        }
+
+        impl std::ops::Sub<&BigInt> for $uty {
+            type Output = BigInt;
+            fn sub(self, rhs: &BigInt) -> Self::Output {
+                -(rhs - self)
+            }
+        }
+
+        impl std::ops::Sub<$uty> for BigInt {
+            type Output = BigInt;
+            fn sub(self, rhs: $uty) -> Self::Output {
+                (&self).sub(rhs)
+            }
+        }
+
+        impl std::ops::Sub<$sty> for &BigInt {
+            type Output = BigInt;
+        
+            fn sub(self, rhs: $sty) -> Self::Output {
+                match rhs.signum() {
+                    1  => self - rhs.unsigned_abs(),
+                    0  => self.clone(),
+                    -1 => self + rhs.unsigned_abs(),
+                    _ => unreachable!()
+                }
+            }
+        }
+
+        impl std::ops::Sub<&BigInt> for $sty {
+            type Output = BigInt;
+            fn sub(self, rhs: &BigInt) -> Self::Output {
+                -(rhs - self)
+            }
+        }
+
+        impl std::ops::Sub<$sty> for BigInt {
+            type Output = BigInt;
+            fn sub(self, rhs: $sty) -> Self::Output {
+                (&self).sub(rhs)
+            }
+        }
+
+
+        impl std::ops::Div<$uty> for &BigInt {
+            type Output = (BigInt, $uty);
+        
+            fn div(self, rhs: $uty) -> Self::Output {
+                use Sign::*;
+        
+                let (q, r) = &self.natural / rhs;
+                let (q, r): (BigInt, _) = (q.into(), r);
+        
+                match &self.sign {
+                    Positive => (q, r),
+                    Negative => (-q - BigInt::from(1), rhs - r),
+                    Zero => (BigInt::zero(), 0),
+                }
+            }
+        }
+
+        impl std::ops::Div<$uty> for BigInt {
+            type Output = (BigInt, $uty);
+            fn div(self, rhs: $uty) -> Self::Output {
+                (&self).div(rhs)
+            }
+        }
+
+        impl std::ops::Div<$sty> for &BigInt {
+            type Output = (BigInt, $sty);
+        
+            fn div(self, rhs: $sty) -> Self::Output {
+                use Sign::*;
+        
+                let (q, r) = &self.natural / rhs.unsigned_abs();
+                let (q, r): (BigInt, _) = (q.into(), r);
+        
+                match (&self.sign, &rhs.signum()) {
+                    (Positive, 1) => (q, r as $sty),
+                    (Negative, -1) => (q, -(r as $sty)),
+                    (Positive, -1) => (-q - BigInt::from(1), rhs + (r as $sty)),
+                    (Negative, 1) => (-q - BigInt::from(1), rhs - (r as $sty)),
+                    (Zero, _) => (BigInt::zero(), 0),
+                    // Handled at BigNat division
+                    (_, 0) => unreachable!(),
+                    _ => unreachable!()
+                }
+            }
+        }
+
+        impl std::ops::Div<$sty> for BigInt {
+            type Output = (BigInt, $sty);
+            fn div(self, rhs: $sty) -> Self::Output {
+                (&self).div(rhs)
+            }
+        }
+    )*)
+}
 
 impl BigInt {
+    cmp_digit_size!(cmp_u8 -> u8; cmp_u16 -> u16; cmp_u32 -> u32 |
+                    cmp_i8, cmp_u8 -> i8; cmp_i16, cmp_u16 -> i16; cmp_i32, cmp_u32 -> i32);
+
+    eq_digit_size!(eq_u8 -> u8; eq_u16 -> u16; eq_u32 -> u32 |
+                   eq_i8 -> i8; eq_i16 -> i16; eq_i32 -> i32);
+                    
     pub fn is_negative(&self) -> bool {
         self.sign == Sign::Negative
     }
@@ -42,6 +336,8 @@ impl APNum for BigInt {
         self.natural.digits.len()
     }
 }
+
+impl_digit_size_arithmetic!(u8; u16; u32 | i8; i16; i32);
 
 impl std::ops::Add for &BigInt {
     type Output = BigInt;
