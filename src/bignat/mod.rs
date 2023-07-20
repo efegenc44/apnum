@@ -42,7 +42,7 @@ impl APNum for BigNat {
     }
 }
 
-impl TryInto<BigDigit> for BigNat {
+impl TryInto<BigDigit> for &BigNat {
     type Error = ();
 
     fn try_into(self) -> Result<BigDigit, Self::Error> {
@@ -53,6 +53,14 @@ impl TryInto<BigDigit> for BigNat {
         } else {
             Err(())
         }
+    }
+}
+
+impl TryInto<BigDigit> for BigNat {
+    type Error = ();
+
+    fn try_into(self) -> Result<BigDigit, Self::Error> {
+        (&self).try_into()
     }
 }
 

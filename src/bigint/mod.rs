@@ -50,7 +50,7 @@ impl APNum for BigInt {
     }
 }
 
-impl TryInto<i32> for BigInt {
+impl TryInto<i32> for &BigInt {
     type Error = ();
 
     fn try_into(self) -> Result<i32, Self::Error> {
@@ -63,6 +63,14 @@ impl TryInto<i32> for BigInt {
         } else {
             Err(())
         }
+    }
+}
+
+impl TryInto<i32> for BigInt {
+    type Error = ();
+
+    fn try_into(self) -> Result<i32, Self::Error> {
+        (&self).try_into()
     }
 }
 
