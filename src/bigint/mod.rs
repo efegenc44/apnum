@@ -50,6 +50,22 @@ impl APNum for BigInt {
     }
 }
 
+impl TryInto<i32> for BigInt {
+    type Error = ();
+
+    fn try_into(self) -> Result<i32, Self::Error> {
+        use std::cmp::Ordering::*;
+
+        if self.is_zero() {
+            Ok(0)
+        } else if let Less | Equal = self.cmp_i32(i32::MAX) {
+            Ok(self.natural.digits[0] as i32)
+        } else {
+            Err(())
+        }
+    }
+}
+
 impl std::ops::Neg for &BigInt {
     type Output = BigInt;
 

@@ -5,7 +5,7 @@ pub mod div;
 pub mod cmp;
 pub mod eq;
 
-use crate::{APNum, APNumParseError, BigNat, BASE};
+use crate::{APNum, APNumParseError, BigNat, BASE, BigDigit};
 
 impl BigNat {    
     fn pow_uint(&self, power: usize) -> BigNat {
@@ -39,6 +39,20 @@ impl APNum for BigNat {
 
     fn digit_count(&self) -> usize {
         self.digits.len()
+    }
+}
+
+impl TryInto<BigDigit> for BigNat {
+    type Error = ();
+
+    fn try_into(self) -> Result<BigDigit, Self::Error> {
+        if self.is_zero() {
+            Ok(0)
+        } else if self.digit_count() == 1 {
+            Ok(self.digits[0])
+        } else {
+            Err(())
+        }
     }
 }
 
